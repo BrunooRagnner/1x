@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Ponto com Foto</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <style>
+        #video {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mt-4">Registro de Ponto</h1>
+        <div class="card mt-4">
+            <div class="card-body">
+                <div class="form-group">
+                    <label for="nome">Nome do Usuário:</label>
+                    <input type="text" id="nome" class="form-control" required>
+                </div>
+                <button id="registrarEntrada" class="btn btn-success">Registrar Entrada</button>
+                <button id="registrarSaida" class="btn btn-danger">Registrar Saída</button>
+                <!-- Adicionado o vídeo abaixo dos botões -->
+                <video id="video" width="320" height="240" autoplay></video>
+            </div>
+        </div>
+        <h3 class="mt-4">Registros Recentes</h3>
+        <button id="mostrarRegistros" class="btn btn-info">Mostrar Registros Recentes</button>
+        <div id="registros" style="display: none;">
+            <table class="table table-striped mt-2">
+                <thead>
+                    <tr>
+                        <th>Nome</th>
+                        <th>Data</th>
+                        <th>Hora de Entrada</th>
+                        <th>Hora de Saída</th>
+                        <th>Foto</th>
+                    </tr>
+                </thead>
+                <tbody id="tabela-registros">
+                    <!-- Linhas de registros serão adicionadas aqui -->
+                </tbody>
+            </table>
+            <div class="pagination">
+                <button id="prevPage" class="btn btn-secondary">Anterior</button>
+                <button id="nextPage" class="btn btn-secondary">Próximo</button>
+            </div>
+            <button id="apagarRegistros" class="btn btn-danger mt-4">Apagar Todos os Registros</button>
+        </div>
+        <button id="gerarPDF" class="btn btn-primary mt-4">Gerar PDF Semanal</button>
+        <canvas id="canvas" style="display: none;"></canvas>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.3.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const context = canvas.getContext('2d');
+        let registrosVisiveis = false;
+        let currentPage = 1;
+        const registrosPerPage = 5;
+
+        // Senha para acessar os registros e gerar o PDF
+        const acessoSenha = "admin123"; // Substitua com a senha desejada
+
+        // Solicitar acesso à câmera do dispositivo
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+            })
+            .catch(err => {
+                console.error("Erro ao acessar a câmera: ", err);
+            });
+
+        function capturarFoto(callback) {
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const foto = canvas.toDataURL('image/png');
+            callback(foto);
+        }
+
+        function registrarPonto(tipo, foto) {
+            const nome = document.getElementById('nome').value;
+            if (!nome) {
+                Swal.fire('Erro', 'Nome é obrigatório!', 'error');
+                return;
+            }
+            const now = new Date();
+            const data = now.toLocaleDateString();
+            const hora = now.toLocaleTimeString();
+
+            let registros = JSON.parse(localStorage.getItem('registros')) || [];
+
+            if (tipo === 'entrada') {
+                registros.push({ nome, data, horaEntrada: hora, horaSaida: null, foto });
+                Swal.fire('Entrada Registrada', `Entrada registrada com sucesso para ${nome} às ${hora}.`, 'success');
+            } else {
+                let ultimoRegistro = registros[registros.length - 1];
+                if (ultimoRegistro && !ultimoRegistro.horaSaida) {
+                    ultimoRegistro.horaSaida = hora;
+                    Swal.fire('Saída Registrada', `Saída registrada com sucesso para ${nome} às ${hora}.`, 'success');
+                } else {
+                    Swal.fire('Erro', 'Nenhuma entrada anterior encontrada para registrar a saída.', 'error');
+                }
+            }
+
+            localStorage.setItem('registros', JSON.stringify(registros));
+            if (registrosVisiveis) {
+                atualizarTabela();
+            }
+            document.getElementById('nome').value = '';
+        }
+
+        function atualizarTabela() {
+            const registros = JSON.parse(localStorage.getItem('registros')) || [];
+            const tabela = document.getElementById('tabela-registros');
+            tabela.innerHTML = '';
+
+            const start = (currentPage - 1) * registrosPerPage;
+            const end = start + registrosPerPage;
+            const registrosPagina = registros.slice(start, end);
+
+            registrosPagina.forEach(registro => {
+                const row = tabela.insertRow();
+                row.insertCell(0).innerText = registro.nome;
+                row.insertCell(1).innerText = registro.data;
+                row.insertCell(2).innerText = registro.horaEntrada;
+                row.insertCell(3).innerText = registro.horaSaida || '---';
+                const imgCell = row.insertCell(4);
+                const img = document.createElement('img');
+                img.src = registro.foto;
+                img.width = 50;
+                img.height = 50;
+                imgCell.appendChild(img);
+            });
+
+            // Atualizar botões de paginação
+            document.getElementById('prevPage').disabled = currentPage === 1;
+            document.getElementById('nextPage').disabled = end >= registros.length;
+        }
+
+        document.getElementById('registrarEntrada').addEventListener('click', function() {
+            capturarFoto((foto) => {
+                registrarPonto('entrada', foto);
+            });
+        });
+
+        document.getElementById('registrarSaida').addEventListener('click', function() {
+            capturarFoto((foto) => {
+                registrarPonto('saida', foto);
+            });
+        });
+
+        document.getElementById('mostrarRegistros').addEventListener('click', function() {
+            const senha = prompt("Digite a senha para ver os registros recentes:");
+            if (senha === acessoSenha) {
+                document.getElementById('registros').style.display = 'block';
+                registrosVisiveis = true;
+                atualizarTabela();
+            } else {
+                Swal.fire('Erro', 'Senha incorreta!', 'error');
+            }
+        });
+
+        document.getElementById('apagarRegistros').addEventListener('click', function() {
+            const senha = prompt("Digite a senha para apagar todos os registros:");
+            if (senha === acessoSenha) {
+                Swal.fire({
+                    title: 'Tem certeza?',
+                    text: "Essa ação apagará todos os registros!",
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'Sim, apagar!',
+                    cancelButtonText: 'Não, cancelar'
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        localStorage.removeItem('registros');
+                        atualizarTabela();
+                        Swal.fire('Apagado!', 'Todos os registros foram apagados.', 'success');
+                    }
+                });
+            } else {
+                Swal.fire('Erro', 'Senha incorreta!', 'error');
+            }
+        });
+
+        document.getElementById('prevPage').addEventListener('click', function() {
+            if (currentPage > 1) {
+                currentPage--;
+                atualizarTabela();
+            }
+        });
+
+        document.getElementById('nextPage').addEventListener('click', function() {
+            const registros = JSON.parse(localStorage.getItem('registros')) || [];
+            if (currentPage < Math.ceil(registros.length / registrosPerPage)) {
+                currentPage++;
+                atualizarTabela();
+            }
+        });
+
+        document.getElementById('gerarPDF').addEventListener('click', function() {
+            const senha = prompt("Digite a senha para gerar o relatório:");
+            if (senha === acessoSenha) {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF();
+
+                doc.text(20, 20, 'Relatório Semanal de Horas Trabalhadas');
+
+                const registros = JSON.parse(localStorage.getItem('registros')) || [];
+                let y = 30;
+
+                registros.forEach(registro => {
+                    doc.text(20, y, `Nome: ${registro.nome}, Data: ${registro.data}, Entrada: ${registro.horaEntrada}, Saída: ${registro.horaSaida || '---'}`);
+                    y += 10;
+                });
+
+                doc.save('relatorio_semanal.pdf');
+                Swal.fire('PDF Gerado', 'O relatório PDF foi gerado com sucesso.', 'success');
+            } else {
+                Swal.fire('Erro', 'Senha incorreta!', 'error');
+            }
+        });
+    </script>
+</body>
+</html>
